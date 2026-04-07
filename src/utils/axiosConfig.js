@@ -1,9 +1,10 @@
 import axios from 'axios';
 
-// Create axios instance
+// Create axios instance with CORS support
 const axiosInstance = axios.create({
+  withCredentials: true,
   headers: {
-    'User-Agent': 'SecureChat-Frontend'
+    'Content-Type': 'application/json'
   }
 });
 
