@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 let socket = null;
 
 export const initializeWebSocket = (token, onMessage, onOnlineUsers) => {
-  const BACKEND_URL = 'krmu.saivyytechnologies.com';
+  const BACKEND_URL = 'https://krmu.saivyytechnologies.com';
   const wsUrl = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
   
   socket = io(wsUrl, {

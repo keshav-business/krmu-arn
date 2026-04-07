@@ -4,7 +4,7 @@ import axiosInstance from '@/utils/axiosConfig';
 
 const AuthContext = createContext(null);
 
-const BACKEND_URL = 'krmu.saivyytechnologies.com';
+const BACKEND_URL = 'https://krmu.saivyytechnologies.com';
 const API = `${BACKEND_URL}/api`;
 
 export const AuthProvider = ({ children }) => {

@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import axiosInstance from '@/utils/axiosConfig';
 import { Users, ChartBar, SignOut, Lock } from '@phosphor-icons/react';
 
-const BACKEND_URL = 'krmu.saivyytechnologies.com';
+const BACKEND_URL = 'https://krmu.saivyytechnologies.com';
 const API = `${BACKEND_URL}/api`;
 
 const AdminPanel = () => {
