@@ -23,7 +23,7 @@ import {
 import { toast } from 'sonner';
 import { filterProfanity } from '@/utils/profanityFilter';
 
-const BACKEND_URL = 'https://unevaporative-holden-unvatted.ngrok-free.dev';
+const BACKEND_URL = 'krmu.saivyytechnologies.com';
 const API = `${BACKEND_URL}/api`;
 
 const ChatDashboard = () => {

@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { ArrowLeft, SignOut, Trash, Bell, Moon, Sun, UserCircle } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
-const BACKEND_URL = 'https://unevaporative-holden-unvatted.ngrok-free.dev';
+const BACKEND_URL = 'krmu.saivyytechnologies.com';
 const API = `${BACKEND_URL}/api`;
 
 const Settings = () => {

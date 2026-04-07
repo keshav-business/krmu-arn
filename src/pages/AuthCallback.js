@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
 
-const BACKEND_URL = 'https://unevaporative-holden-unvatted.ngrok-free.dev';
+const BACKEND_URL = 'krmu.saivyytechnologies.com';
 const API = `${BACKEND_URL}/api`;
 
 const AuthCallback = () => {
