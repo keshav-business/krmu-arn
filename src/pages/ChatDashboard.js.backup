@@ -1,0 +1,414 @@
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import { useAuth } from '@/context/AuthContext';
+import { encryptMessage, decryptMessage } from '@/utils/encryption';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { 
+  SignOut, 
+  PaperPlaneRight, 
+  ShieldCheck,
+  User as UserIcon,
+  Circle,
+  Megaphone
+} from '@phosphor-icons/react';
+import { toast } from 'sonner';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const ChatDashboard = () => {
+  const { user, token, privateKey, logout } = useAuth();
+  const navigate = useNavigate();
+  const [users, setUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [announcements, setAnnouncements] = useState([]);
+  const [showAnnouncements, setShowAnnouncements] = useState(true);
+  const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '' });
+  const messagesEndRef = useRef(null);
+  const wsRef = useRef(null);
+
+  useEffect(() => {
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    
+    fetchUsers();
+    fetchAnnouncements();
+    connectWebSocket();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (selectedUser) {
+      fetchMessages(selectedUser.id);
+    }
+  }, [selectedUser]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const connectWebSocket = () => {
+    const wsUrl = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+    const ws = new WebSocket(`${wsUrl}/ws/${token}`);
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+    };
+
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+      
+      if (data.type === 'online_users') {
+        setOnlineUsers(data.users);
+      } else if (data.type === 'new_message') {
+        const msg = data.message;
+        if (selectedUser && (msg.sender_id === selectedUser.id || msg.receiver_id === selectedUser.id)) {
+          // Decrypt received messages only
+          if (msg.receiver_id === user.id) {
+            const decrypted = await decryptMessage(msg.encrypted_message, privateKey);
+            setMessages(prev => [...prev, { ...msg, decrypted_message: decrypted, is_sent: false }]);
+          }
+        }
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+    };
+
+    wsRef.current = ws;
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const response = await axios.get(`${API}/users`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUsers(response.data);
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+      toast.error('Failed to load users');
+    }
+  };
+
+  const fetchMessages = async (userId) => {
+    try {
+      const response = await axios.get(`${API}/messages/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      const decryptedMessages = await Promise.all(
+        response.data.map(async (msg) => {
+          // Only decrypt messages we received (where we are the receiver)
+          // For messages we sent, we can't decrypt them (encrypted with receiver's key)
+          if (msg.receiver_id === user.id) {
+            const decrypted = await decryptMessage(msg.encrypted_message, privateKey);
+            return { ...msg, decrypted_message: decrypted, is_sent: false };
+          } else {
+            // For sent messages, mark as sent but we can't decrypt
+            return { ...msg, decrypted_message: '[Sent Message]', is_sent: true };
+          }
+        })
+      );
+      
+      setMessages(decryptedMessages);
+    } catch (error) {
+      console.error('Failed to fetch messages:', error);
+    }
+  };
+
+  const sendMessage = async (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !selectedUser) return;
+
+    setLoading(true);
+    const messagePlaintext = newMessage;
+    try {
+      const encrypted = await encryptMessage(messagePlaintext, selectedUser.public_key);
+      
+      const response = await axios.post(
+        `${API}/messages`,
+        {
+          receiver_id: selectedUser.id,
+          encrypted_message: encrypted
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      
+      const msg = response.data;
+      // Store the original plaintext for sent messages
+      setMessages(prev => [...prev, { ...msg, decrypted_message: messagePlaintext, is_sent: true }]);
+      setNewMessage('');
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      toast.error('Failed to send message');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  const isUserOnline = (userId) => onlineUsers.includes(userId);
+
+  const getInitials = (name) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  const fetchAnnouncements = async () => {
+    try {
+      const response = await axios.get(`${API}/announcements`, {
+        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true
+      });
+      setAnnouncements(response.data);
+    } catch (error) {
+      console.error('Failed to fetch announcements:', error);
+    }
+  };
+
+  const postAnnouncement = async (e) => {
+    e.preventDefault();
+    if (!newAnnouncement.title.trim() || !newAnnouncement.content.trim()) return;
+
+    try {
+      const response = await axios.post(
+        `${API}/announcements`,
+        {
+          title: newAnnouncement.title,
+          content: newAnnouncement.content
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          withCredentials: true
+        }
+      );
+      
+      setAnnouncements(prev => [response.data, ...prev]);
+      setNewAnnouncement({ title: '', content: '' });
+      toast.success('Announcement posted!');
+    } catch (error) {
+      console.error('Failed to post announcement:', error);
+      toast.error(error.response?.data?.detail || 'Failed to post announcement');
+    }
+  };
+
+  return (
+    <div className="h-screen flex flex-col overflow-hidden" style={{ fontFamily: 'IBM Plex Sans, sans-serif' }}>
+      <div className="border-b border-black/15 bg-white">
+        <div className="px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <ShieldCheck size={28} weight="duotone" style={{ color: '#002FA7' }} />
+            <span className="text-xl font-black tracking-tighter" style={{ fontFamily: 'Cabinet Grotesk, sans-serif', color: '#0A0A0A' }}>
+              SECURE CHAT
+            </span>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <div className="text-sm font-semibold" style={{ color: '#0A0A0A' }}>{user?.name}</div>
+              <div className="text-xs" style={{ fontFamily: 'IBM Plex Mono, monospace', color: '#52525B' }}>
+                ENCRYPTED
+              </div>
+            </div>
+            <Button
+              data-testid="logout-button"
+              onClick={handleLogout}
+              variant="outline"
+              className="rounded-none border-2 border-black/20 h-10 px-4"
+            >
+              <SignOut size={20} style={{ color: '#0A0A0A' }} />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 flex overflow-hidden">
+        <div className="w-80 border-r border-black/15 bg-[#F4F4F5] flex flex-col">
+          <div className="p-4 border-b border-black/15 bg-white">
+            <h3 className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ fontFamily: 'IBM Plex Mono, monospace', color: '#0A0A0A' }}>
+              CONTACTS ({users.length})
+            </h3>
+          </div>
+          
+          <ScrollArea className="flex-1">
+            <div>
+              {users.map((u) => (
+                <button
+                  key={u.id}
+                  data-testid={`user-list-item-${u.id}`}
+                  onClick={() => setSelectedUser(u)}
+                  className="w-full p-4 border-b border-black/15 flex items-center gap-3 hover:bg-white transition-colors text-left"
+                  style={{
+                    backgroundColor: selectedUser?.id === u.id ? 'white' : 'transparent'
+                  }}
+                >
+                  <div className="relative">
+                    <Avatar className="h-12 w-12 rounded-none border border-black/15">
+                      <AvatarFallback className="rounded-none" style={{ backgroundColor: '#002FA7', color: 'white', fontFamily: 'Cabinet Grotesk, sans-serif' }}>
+                        {getInitials(u.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div 
+                      className="absolute -top-1 -right-1 w-3 h-3 rounded-none border border-white"
+                      style={{ backgroundColor: isUserOnline(u.id) ? '#00C853' : '#52525B' }}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm truncate" style={{ color: '#0A0A0A' }}>
+                      {u.name}
+                    </div>
+                    <div className="text-xs truncate" style={{ color: '#52525B' }}>
+                      {u.email}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+
+        <div className="flex-1 flex flex-col bg-white">
+          {selectedUser ? (
+            <>
+              <div className="p-4 border-b border-black/15 flex items-center justify-between bg-[#F4F4F5]">
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-10 w-10 rounded-none border border-black/15">
+                    <AvatarFallback className="rounded-none" style={{ backgroundColor: '#002FA7', color: 'white', fontFamily: 'Cabinet Grotesk, sans-serif' }}>
+                      {getInitials(selectedUser.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <div className="font-semibold text-sm" style={{ color: '#0A0A0A' }}>
+                      {selectedUser.name}
+                    </div>
+                    <div className="text-xs flex items-center gap-1" style={{ color: isUserOnline(selectedUser.id) ? '#00C853' : '#52525B' }}>
+                      <div 
+                        className="w-2 h-2 rounded-none"
+                        style={{ backgroundColor: isUserOnline(selectedUser.id) ? '#00C853' : '#52525B' }}
+                      />
+                      {isUserOnline(selectedUser.id) ? 'ONLINE' : 'OFFLINE'}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs uppercase tracking-[0.2em]" style={{ fontFamily: 'IBM Plex Mono, monospace', color: '#00C853' }}>
+                  🔒 E2E ENCRYPTED
+                </div>
+              </div>
+
+              <ScrollArea className="flex-1 p-6">
+                <div className="space-y-4">
+                  {messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      data-testid={`message-${msg.id}`}
+                      className="flex"
+                      style={{
+                        justifyContent: msg.sender_id === user.id ? 'flex-end' : 'flex-start'
+                      }}
+                    >
+                      <div
+                        className="max-w-md border border-black/15 p-3"
+                        style={{
+                          backgroundColor: msg.sender_id === user.id ? '#002FA7' : '#F4F4F5',
+                          color: msg.sender_id === user.id ? 'white' : '#0A0A0A'
+                        }}
+                      >
+                        <div className="text-sm leading-relaxed mb-1">
+                          {msg.decrypted_message}
+                        </div>
+                        <div 
+                          className="text-xs" 
+                          style={{ 
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            color: msg.sender_id === user.id ? 'rgba(255,255,255,0.7)' : '#52525B'
+                          }}
+                        >
+                          {new Date(msg.timestamp).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+              </ScrollArea>
+
+              <div className="p-4 border-t border-black/15 bg-[#F4F4F5]">
+                <form onSubmit={sendMessage} className="flex gap-2">
+                  <Input
+                    data-testid="message-input"
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Type your message..."
+                    className="flex-1 rounded-none border-black/20 focus:ring-2 focus:ring-[#002FA7] focus:border-transparent h-12"
+                    disabled={loading}
+                  />
+                  <Button
+                    data-testid="send-message-button"
+                    type="submit"
+                    disabled={loading || !newMessage.trim()}
+                    className="rounded-none h-12 px-6"
+                    style={{ backgroundColor: '#002FA7', color: 'white' }}
+                  >
+                    <PaperPlaneRight size={20} weight="fill" />
+                  </Button>
+                </form>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center" style={{ backgroundColor: '#F4F4F5' }}>
+              <div className="text-center">
+                <ShieldCheck size={64} weight="duotone" style={{ color: '#002FA7' }} className="mx-auto mb-4" />
+                <h3 className="text-2xl font-bold tracking-tight mb-2" style={{ fontFamily: 'Cabinet Grotesk, sans-serif', color: '#0A0A0A' }}>
+                  SELECT A CONTACT
+                </h3>
+                <p className="text-sm" style={{ color: '#52525B' }}>
+                  Choose a user from the list to start a secure conversation
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ChatDashboard;
